@@ -39,6 +39,13 @@ stays, because three rows use `FROM "t"` as a table identifier. On this copy
 the rewrite writes 78,577 rows, changes 62,967 statements, and doubles
 apostrophes in 503 places.
 
+## Refined dataset
+
+The refined dataset is `data/sql/sql_context_v2.json`: 78,577 rows, with
+normalised quotes, 541 repaired statements, and expanded DDL where expansion
+succeeded. Its Hugging Face card is `dataset_card/README.md`. Spider and
+extended hardness are not columns of this file.
+
 ## Tests
 
 ```bash

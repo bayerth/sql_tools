@@ -69,6 +69,12 @@ an extended hardness label. Where the official Spider adapter accepts the
 statement, it also receives a Spider hardness label. No statement is executed.
 \end{abstract}
 
+The code and the prompts are in \url{https://github.com/bayerth/sql_tools}.
+Repair and DDL expansion call \texttt{openai/gpt-oss-120b} through LM Studio on
+a Mac Studio with an M4 Max and 128\,GB of memory. The context length is
+32{,}768 tokens and the temperature is 0. Expansion sends 16 rows per request.
+Repair sends one row per request.
+
 \section{The source dataset}
 
 \texttt{sql-create-context-copy}~\cite{sqlcontextcopy} is the local starting
@@ -104,10 +110,6 @@ The scripts were run in this order. Each step reads the previous step's output.
         file of 78{,}577 rows. Failed rows keep their original DDL.
   \item Assign Spider hardness and extended hardness.
 \end{enumerate}
-
-Repair and expansion used \texttt{openai/gpt-oss-120b} through a remote
-LM Studio server, with a context length of 32{,}768 tokens. Expansion requests
-were sent in batches of 16.
 
 \section{Single-quoted literals}
 \label{sec:quotes}
@@ -309,6 +311,45 @@ CREATE TABLE station (
 )
 \end{lstlisting}
 
+\section{Run statistics}
+
+The figures below are reconstructed from the request logs of the two model
+runs, not from a separate profiler. Each log line records prompt tokens,
+completion tokens, reasoning tokens, output tokens, and the request time.
+Output tokens are completion tokens plus reasoning tokens. Tokens per second
+are output tokens divided by the sum of those request times. Wall-clock time
+and seconds per row include everything between the start and the end of the
+run. A short expansion probe of 68 requests is not included.
+
+\begin{table}[ht]
+  \centering
+  \caption{Repair and expansion on the Mac Studio (M4 Max, 128\,GB),
+  model \texttt{openai/gpt-oss-120b}, context length 32{,}768.}
+  \label{tab:runs}
+  \begin{tabular}{lrr}
+    \toprule
+     & Repair & Expansion \\
+    \midrule
+    Rows              &       541 &     78{,}577 \\
+    Requests          &       541 &      4{,}912 \\
+    Rows per request  &         1 &           16 \\
+    Wall clock (s)    &   3{,}054.6 & 74{,}452.3 \\
+    Seconds per row   &      5.65 &       0.95 \\
+    Request time (s)  &   3{,}049.6 & 74{,}293.8 \\
+    Prompt tokens     & 1{,}176{,}635 & 12{,}872{,}757 \\
+    Completion tokens &   158{,}924 &  3{,}103{,}812 \\
+    Reasoning tokens  &    76{,}062 &  2{,}253{,}562 \\
+    Output tokens     &   234{,}986 &  5{,}357{,}374 \\
+    Output tokens/s   &      77.1 &       72.1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The last expansion request contains the remaining row, so the 4{,}912 requests
+are 4{,}911 batches of 16 and one batch of 1. Request time is almost the whole
+wall clock: about 0.95 seconds per row either way. Repair is slower per row
+because each of the 541 statements is its own request.
+
 \section{Hardness}
 
 Hardness is assigned last, on the merged SQL and DDL. Classification does not
@@ -332,6 +373,24 @@ set. An expression Spider cannot store counts as one ordinary column, and a
 clause it cannot store, such as \texttt{OFFSET}, is ignored. Nesting rules
 then apply to that score. A statement that does not parse in the generic
 dialect is tried once as MySQL, so backtick identifiers still receive a label.
+
+No row is Spider \texttt{easy} and extended \texttt{extreme}. Six rows are
+Spider \texttt{easy} and extended \texttt{hard}. Each of them is a
+\texttt{COUNT(*)} over a subquery. Spider scores only the outer statement, and
+that statement has no \texttt{WHERE}, grouping, ordering, limit, or join of
+its own, so the counters stay at zero and the label is \texttt{easy}. The
+extension sees the nested \texttt{SELECT} and therefore assigns at least
+\texttt{hard}. One subquery is not enough for \texttt{extreme}.
+
+\begin{lstlisting}[caption={Spider easy, extended hard. The outer count hides a grouped subquery.}]
+SELECT COUNT(*)
+FROM (
+  SELECT city
+  FROM airports
+  GROUP BY city
+  HAVING COUNT(*) > 3
+)
+\end{lstlisting}
 
 The salary query below is Spider \texttt{extra} because the outer statement
 has two nested queries. It is \texttt{extreme} for a narrower reason: two
