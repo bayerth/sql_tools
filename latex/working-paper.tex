@@ -1,0 +1,403 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{upquote}
+\usepackage[hidelinks]{hyperref}
+\usepackage{booktabs}
+
+\definecolor{sqlkeyword}{RGB}{0,70,160}
+\definecolor{sqlstring}{RGB}{148,0,110}
+\definecolor{sqlcomment}{RGB}{0,120,0}
+\definecolor{sqlbg}{RGB}{244,244,244}
+\definecolor{sqlframe}{RGB}{190,190,190}
+
+% Grey box, coloured tokens. Keywords are written in uppercase, matching
+% the SQL that the repair and expansion prompts ask the model to emit.
+\lstdefinestyle{sql}{
+  language=SQL,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{sqlkeyword}\bfseries,
+  ndkeywordstyle=\color{sqlkeyword}\bfseries,
+  stringstyle=\color{sqlstring},
+  commentstyle=\color{sqlcomment}\itshape,
+  backgroundcolor=\color{sqlbg},
+  frame=single,
+  rulecolor=\color{sqlframe},
+  framesep=6pt,
+  xleftmargin=2pt,
+  xrightmargin=2pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  columns=fullflexible,
+  keepspaces=true,
+  tabsize=2,
+  upquote=true,
+  sensitive=false,
+  captionpos=b,
+  aboveskip=10pt,
+  belowskip=8pt,
+  morekeywords={VARCHAR,INTEGER,PRIMARY,KEY,AUTO_INCREMENT,LIMIT,OFFSET,
+    COUNT,AVG,MAX,MIN,SUM,GROUP,ORDER,JOIN,LEFT,RIGHT,INNER,OUTER,
+    DISTINCT,EXCEPT,INTERSECT,UNION,BETWEEN,LIKE,ASC,DESC}
+}
+
+\lstset{style=sql}
+
+\title{Upgrading \texttt{sql-create-context-copy}:\\
+Validation, Repair, Schema Expansion, and Hardness}
+\author{Thomas Bayer\\
+RWU Hochschule Ravensburg-Weingarten\\
+\texttt{thomas.bayer@rwu.de}
+\and
+Grok}
+\date{Working paper, October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This note documents a database-free upgrade of the 78{,}577-row text-to-SQL
+dataset \texttt{sql-create-context-copy}~\cite{sqlcontextcopy}. String literals
+are rewritten to single quotes, every row is checked for SQL syntax, DDL
+syntax, and schema consistency, 541 failing rows are repaired, and the DDL of
+the valid rows is expanded without changing the query. Each row then receives
+an extended hardness label. Where the official Spider adapter accepts the
+statement, it also receives a Spider hardness label. No statement is executed.
+\end{abstract}
+
+\section{The source dataset}
+
+\texttt{sql-create-context-copy}~\cite{sqlcontextcopy} is the local starting
+point, saved from the Hugging Face dataset
+\texttt{philschmid/sql-create-context-copy} at revision \texttt{ed48b9fa}.
+Each row has a natural-language \texttt{question}, a SQL \texttt{answer}, and
+a \texttt{context} of one or more \texttt{CREATE TABLE} statements. The copy
+contains 78{,}577 training rows. The published schemas are small: they usually
+contain only the columns the query mentions, and string columns are often
+declared as bare \texttt{VARCHAR}.
+
+The upgrade keeps the questions and, except for the repaired rows, the SQL
+answers. It changes the form of literals, the consistency of identifiers, the
+richness of the DDL, and the labels attached to each row. Structural
+validation is not a check that the SQL answers the question. Nothing in this
+pipeline opens a database connection.
+
+\section{Pipeline}
+
+The scripts were run in this order. Each step reads the previous step's output.
+
+\begin{enumerate}
+  \item Rewrite double-quoted string literals in \texttt{answer} to single quotes.
+  \item Validate SQL syntax, DDL syntax, and schema references with the generic
+        SQLGlot dialect.
+  \item Repair the 541 rows that failed that validation. A candidate is kept
+        only when the repaired SQL and DDL pass validation again.
+  \item Merge the 78{,}036 rows that were already valid with the 541 repaired
+        rows.
+  \item Expand the DDL. The model may add columns and lengths. It must not
+        change the SQL.
+  \item Merge expanded, unchanged, and failed expansion rows back into one
+        file of 78{,}577 rows. Failed rows keep their original DDL.
+  \item Assign Spider hardness and extended hardness.
+\end{enumerate}
+
+Repair and expansion used \texttt{openai/gpt-oss-120b} through a remote
+LM Studio server, with a context length of 32{,}768 tokens. Expansion requests
+were sent in batches of 16.
+
+\section{Single-quoted literals}
+\label{sec:quotes}
+
+The copy stores many string values in double quotes. On MySQL without
+\texttt{ANSI\_QUOTES}, and on SQLite, those quotes are string literals. The
+generic SQLGlot dialect reads them as identifiers, so a later schema check
+reports a missing column. That false error would have dominated validation.
+
+The module \texttt{rewrite\_sql\_string\_quotes} rewrites paired double quotes
+in \texttt{answer} only.
+\texttt{question} and \texttt{context} are copied unchanged. An apostrophe
+inside a literal is doubled, which is the SQL escape for a single quote. A
+double-quoted name written directly after \texttt{FROM} is left alone: three
+rows use \texttt{FROM "t"} as a table identifier rather than a string. The
+default input is \path{data/sql_context_copy}. The default output is
+\path{data/sql/sql_context_copy_single_quoted.json}.
+
+On this copy the rewrite changed 62{,}967 statements and doubled an apostrophe
+in 503 places. The three quoted \texttt{FROM} names stayed quoted.
+
+\begin{lstlisting}[caption={Before: a double-quoted literal is an identifier in the generic dialect.}]
+SELECT Census_Ranking
+FROM city
+WHERE Status <> "Village"
+\end{lstlisting}
+
+\begin{lstlisting}[caption={After: the same predicate, with a single-quoted string.}]
+SELECT Census_Ranking
+FROM city
+WHERE Status <> 'Village'
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Before: an apostrophe inside a double-quoted literal.}]
+SELECT candidates
+FROM table_1342393_17
+WHERE incumbent = "James O'Connor"
+\end{lstlisting}
+
+\begin{lstlisting}[caption={After: the apostrophe is doubled inside a single-quoted literal.}]
+SELECT candidates
+FROM table_1342393_17
+WHERE incumbent = 'James O''Connor'
+\end{lstlisting}
+
+\section{Validation}
+
+Validation uses SQLGlot and does not execute SQL. A row is valid only when
+three checks pass: the query parses, the DDL parses, and every name in the
+query resolves against that DDL. The generic dialect is the right dialect for
+this pass. The copied DDL uses bare \texttt{VARCHAR}. A MySQL check requires
+an explicit length and then skips schema resolution, so a MySQL run would
+reject almost every row before the interesting errors appear.
+
+The generic pass accepted 78{,}036 rows and rejected 541. Among the rejected
+rows, 187 have invalid SQL, 191 have valid syntax but a missing or ambiguous
+column, and 163 have a schema that cannot be checked, typically because the
+DDL repeats a table or column definition.
+
+\subsection{DML syntax}
+
+A numeric prefix, the keyword \texttt{AS}, and an identifier suffix inside an
+aggregate are not a legal argument. The generic parser stops at \texttt{AS}.
+The DDL of this row is fine, so schema resolution is not attempted.
+
+\begin{lstlisting}[caption={Invalid SQL. The aggregate argument is not an expression.}]
+SELECT COUNT(1 AS st_prize__) AS $__
+FROM table_11621747_1
+WHERE tournament = 'The Transamerica'
+\end{lstlisting}
+
+\begin{lstlisting}[caption={DDL for the same row. Generic syntax accepts bare VARCHAR.}]
+CREATE TABLE table_11621747_1 (tournament VARCHAR)
+\end{lstlisting}
+
+\subsection{DDL syntax}
+
+Bare \texttt{VARCHAR} is legal in the generic dialect and illegal in MySQL,
+which requires a length. The same department query passes the generic DDL
+check and fails the MySQL DDL check. Schema resolution does not run after
+that failure. This is why the upgrade validates with the generic dialect
+first and treats the MySQL length as a later normalisation, not as a reason
+to drop the row.
+
+\begin{lstlisting}[caption={Query that is syntactically valid in both dialects.}]
+SELECT name, born_state, age
+FROM head
+ORDER BY age
+\end{lstlisting}
+
+\begin{lstlisting}[caption={DDL rejected by MySQL: VARCHAR needs a length.}]
+CREATE TABLE head (
+  name VARCHAR,
+  born_state VARCHAR,
+  age VARCHAR
+)
+\end{lstlisting}
+
+\subsection{Schema references}
+
+Here the query and the DDL both parse. The filter column is absent from every
+table, so the schema check fails. Validation reports the missing name. It does
+not invent a column.
+
+\begin{lstlisting}[caption={Valid SQL that names a column the DDL does not define.}]
+SELECT t1.catalog_name, t1.date_of_publication
+FROM catalogs AS t1
+JOIN catalog_structure AS t2
+  ON t1.catalog_id = t2.catalog_id
+WHERE catalog_level_number > 5
+\end{lstlisting}
+
+\begin{lstlisting}[caption={The DDL has no catalog\_level\_number column.}]
+CREATE TABLE catalogs (
+  catalog_name VARCHAR,
+  date_of_publication VARCHAR,
+  catalog_id VARCHAR
+);
+CREATE TABLE catalog_structure (
+  catalog_id VARCHAR
+)
+\end{lstlisting}
+
+\section{Repair}
+
+Only the 541 invalid rows are sent to the model. Rows that already validated
+stay out of this step. The target dialect of the repair prompt is MySQL. The
+model may reconstruct a corrupted identifier, quote a reserved word, merge
+column names that differ only in letter case, and give bare \texttt{VARCHAR}
+the length 255 when it rewrites a table. A candidate is applied only when the
+new SQL and the new DDL pass validation. Passing that check means the
+statement is structurally consistent. It does not prove that the repair
+preserved the meaning of the question.
+
+The prize query from the DML example is a corrupted column written as an
+aggregate argument. The repair turns the suffix into a quoted alias and leaves
+the tournament filter in place. The count expression becomes \texttt{COUNT(1)}.
+That is a legal statement. It is not evidence that the original table had a
+column of that name; the source table is not available.
+
+\begin{lstlisting}[caption={Repaired prize query. The alias is quoted, and the aggregate parses.}]
+SELECT COUNT(1) AS `st_prize__`
+FROM table_11621747_1
+WHERE tournament = 'The Transamerica'
+\end{lstlisting}
+
+The catalog query fails because \texttt{catalog\_level\_number} is missing.
+The repair keeps the query, quotes the filter column, adds it to
+\texttt{catalog\_structure}, and writes explicit string lengths.
+
+\begin{lstlisting}[caption={Repaired catalog DDL. The filter column is now defined.}]
+CREATE TABLE catalogs (
+  catalog_name VARCHAR(255),
+  date_of_publication VARCHAR(255),
+  catalog_id VARCHAR(255)
+);
+CREATE TABLE catalog_structure (
+  catalog_id VARCHAR(255),
+  `catalog_level_number` INTEGER
+)
+\end{lstlisting}
+
+The merged file after this step has 78{,}036 originally valid rows plus 541
+repaired rows.
+
+\section{Expansion}
+
+Expansion runs only after the statement is valid. The model may add plausible
+columns and companions that the published schema omitted, such as \texttt{long}
+next to \texttt{lat}, and it gives bare \texttt{VARCHAR} an explicit length
+when it rewrites a table. The SQL query must stay byte-for-byte the same. A
+changed DDL is kept only when the original SQL still resolves against it. If
+the model leaves the DDL unchanged, or if validation rejects the candidate,
+the original pair is kept.
+
+Of the 78{,}577 rows, 68{,}983 received a new DDL, 8{,}025 were left unchanged,
+and 1{,}569 failed. The failed rows stay in the dataset with their previous
+DDL. Added columns are synthetic. They make the schema less of a giveaway of
+the query, and they are not columns from a production database.
+
+\begin{lstlisting}[caption={SQL. Expansion is required to leave this statement unchanged.}]
+SELECT name
+FROM station
+WHERE lat < 37.5
+\end{lstlisting}
+
+\begin{lstlisting}[caption={DDL before expansion. Only the columns used by the query are present.}]
+CREATE TABLE station (
+  name VARCHAR,
+  lat INTEGER
+)
+\end{lstlisting}
+
+\begin{lstlisting}[caption={DDL after expansion. A companion column and string lengths were added.}]
+CREATE TABLE station (
+  name VARCHAR(255),
+  lat INTEGER,
+  long INTEGER
+)
+\end{lstlisting}
+
+\section{Hardness}
+
+Hardness is assigned last, on the merged SQL and DDL. Classification does not
+call a model and does not execute SQL. \texttt{spider\_hardness} follows the
+original Spider rules~\cite{yu2018spider}: \texttt{easy}, \texttt{medium},
+\texttt{hard}, and \texttt{extra}. The counters look only at the outermost
+adapted statement. A join inside a derived table does not change those
+counters.
+
+\texttt{extended\_hardness} is a structural label of this project. It does not
+replace the Spider label. A nested \texttt{SELECT} raises the label to at
+least \texttt{hard}. It becomes \texttt{extreme} when a nested \texttt{SELECT}
+has depth two or more, when at least two nested \texttt{SELECT}s exist and one
+of them aggregates, when one nested \texttt{SELECT} is both correlated and
+aggregated, or when a nested \texttt{SELECT} is itself Spider \texttt{extra}.
+The two labels may be compared only when both are set.
+
+If the official Spider adapter rejects a parsed statement,
+\texttt{spider\_hardness} stays null and \texttt{extended\_hardness} is still
+set. An expression Spider cannot store counts as one ordinary column, and a
+clause it cannot store, such as \texttt{OFFSET}, is ignored. Nesting rules
+then apply to that score. A statement that does not parse in the generic
+dialect is tried once as MySQL, so backtick identifiers still receive a label.
+
+The salary query below is Spider \texttt{extra} because the outer statement
+has two nested queries. It is \texttt{extreme} for a narrower reason: two
+nested \texttt{SELECT}s, and one of them aggregates.
+
+\begin{lstlisting}[caption={Spider extra, extended extreme. The inner average is one of two nested queries.}]
+SELECT employee_id, first_name, last_name, salary
+FROM employees
+WHERE salary > (SELECT AVG(salary) FROM employees)
+  AND department_id IN (
+    SELECT department_id
+    FROM employees
+    WHERE first_name LIKE '%J%'
+  )
+\end{lstlisting}
+
+\begin{table}[ht]
+  \centering
+  \caption{Hardness of all 78{,}577 rows after the generic classification run.
+  Spider shares use the 75{,}382 rows that received a Spider label. Extended
+  shares use every row.}
+  \label{tab:hardness}
+  \begin{tabular}{lrr}
+    \toprule
+    Label & Spider & Extended \\
+    \midrule
+    easy    & 51{,}082 & 53{,}001 \\
+    medium  & 22{,}693 & 23{,}957 \\
+    hard    &    913   &    921 \\
+    extra   &    694   &    690 \\
+    extreme &      --- &      8 \\
+    \midrule
+    labeled & 75{,}382 & 78{,}577 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The 3{,}195 rows with only an extended label are statements the official
+Spider adapter rejects. Eight rows are \texttt{extreme}. No row was left
+without an extended label.
+
+\section{What the upgrade does not claim}
+
+The questions are the questions of \texttt{sql-create-context-copy}. For
+77{,}000-odd rows the SQL answer is unchanged apart from quote normalisation.
+The 541 repairs are the rows that did not parse or did not resolve; they are
+consistent with their DDL after repair, and their meaning was not checked
+against a database. Expanded columns were proposed by a model. Hardness
+measures statement shape, not how difficult a person would find the question.
+
+\begin{thebibliography}{9}
+
+\bibitem{sqlcontextcopy}
+Philipp Schmid.
+\newblock \emph{sql-create-context-copy}.
+\newblock Hugging Face dataset, 2023, revision \texttt{ed48b9fa}.
+\newblock \url{https://huggingface.co/datasets/philschmid/sql-create-context-copy}.
+
+\bibitem{yu2018spider}
+Tao Yu, Rui Zhang, Kai Yang, Michihiro Yasunaga, Dongxu Wang, Zifan Li,
+  James Ma, Irene Li, Qingning Yao, Shanelle Roman, Zilin Zhang, and Dragomir Radev.
+\newblock Spider: A large-scale human-labeled dataset for complex and
+  cross-domain semantic parsing and text-to-SQL task.
+\newblock In \emph{Proceedings of the 2018 Conference on Empirical Methods in
+  Natural Language Processing}, pages 3911--3921, Brussels, 2018.
+
+\end{thebibliography}
+
+\end{document}

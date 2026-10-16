@@ -1,0 +1,21 @@
+{
+  "sql_context_copy": {
+    "dataset_dict.json": "c172eebfc28c1400d6be4338ce7d00191507ffb4ae64c315f039585c894df5b7",
+    "train/cache-088b8826549d8bd3.arrow": "612110d7461d2036ce9901c6b588f5b63029c47b32ff667d0d5b74158b559640",
+    "train/cache-330828ff8f7fefb2.arrow": "8d4c1ce632d0756ff34a322e6fdd372a6dd2203579c8862a452fcd809bde30e0",
+    "train/cache-4d45b8939762d469.arrow": "08c4d68a8402bd1c57a0b92e40ea2c490d666fe0c4515a522edd1585d06d1401",
+    "train/cache-645d776ede74f503.arrow": "64ca278cec66410f809e058cedbd43e46ff9dcca90234330218b60e9cd308cbf",
+    "train/cache-75d5fdf506c1136f.arrow": "324967c6a68efbc73e17a6e1d8960f83033e9abe64211fe405292f7e50ebe37a",
+    "train/cache-88c74ac19acc0e45.arrow": "97e666401a2ac66271f318845c2bf14ed9b00fdb846d88afd0d679d531242ea9",
+    "train/cache-96ba85bb290b4b0d.arrow": "91e0bddcb4fe903388323d3ca6a43c284bc8e62a76bd666562df34777bf35bf9",
+    "train/cache-9c9931f408817098.arrow": "6cf75b0baa09103e70b2a84c72a76aa2e652771495bb1e3786392c1ae04a1772",
+    "train/cache-d14a1c4281f19b74.arrow": "597b7060aaa065d7437c589821fcaa79a2e2ee3fed81ee01bcb6029cacb178de",
+    "train/data-00000-of-00001.arrow": "5ace4419852494bc3d9bd51d0b9e6e831b1b692297f416b35a9be42dd25d78f8",
+    "train/dataset_info.json": "eda0a94dfff3c07be11e835a0a57d20a3f71d2bf1b27e6114bd4311a0f2a5114",
+    "train/state.json": "0aee69239a9b37bda2844f67ca8f722b721ece92a2ad10012699629430117c69"
+  },
+  "sql_test_ds": {
+    "context_copy_small.json": "f609e413d49eb4eff20f21e13eac301651a76eb09523cf5832e9de5da8da7fb0",
+    "context_copy_tiny.json": "9de38c971b7aa924cd9851fae1907073ff61173a7094fcd4110f2ce3059f30a4"
+  }
+}

@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rwu-sql-tools"
+version = "0.1.0"
+description = "SQL dataset validation, Spider hardness, LLM repair and expansion"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["sqlglot==30.21.0"]
+
+[project.optional-dependencies]
+data = ["datasets>=4.7.0"]
+llm = ["rwu-llmconnector>=0.1.1"]
+notebooks = ["jupyter", "ipykernel>=7.2.0", "sqlparse", "requests", "openai>=3.24.0", "datasets>=4.7.0", "rwu-llmconnector>=0.1.1"]
+
+[project.scripts]
+sql-validate = "sql_tools.run_sql_validation:main"
+sql-classify = "sql_tools.run_spider_hardness:main"
+sql-repair = "sql_tools.run_repair_sql_statements:main"
+sql-expand = "sql_tools.run_expand_sql_statements:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["sql_tools*"]
+exclude = ["sql_tools.tests*"]
+
+[tool.setuptools.package-data]
+sql_tools = ["README.md", "SPIDER_LICENSE"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.17.0",
+]
+jupyter = [
+    "jupyter",
+    "ipykernel>=7.2.0",
+]
+
+[tool.uv]
+default-groups = ["dev", "jupyter"]

@@ -1,0 +1,24 @@
+.venv/
+venv*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.env
+# Ignore every file under data. Keep the data/sql directory tree via .gitkeep.
+data/**
+!data/sql/
+!data/sql/**/
+!data/sql/.gitkeep
+!data/sql/**/.gitkeep
+outputs/
+notebooks/
+*.ipynb
+.ipynb_checkpoints/
+latex/*.pdf
+latex/*.aux
+latex/*.log
+latex/*.out
+latex/*.toc
+texput.log

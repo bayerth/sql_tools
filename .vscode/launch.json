@@ -1,0 +1,92 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "SQL Validation (tiny)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "sql_tools.run_sql_validation",
+      "args": [
+        "--dataset-id",
+        "${workspaceFolder}/data/sql_test_ds/context_copy_tiny.json",
+        "--output",
+        "${workspaceFolder}/data/sql_results"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "SQL Validation (full)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "sql_tools.run_sql_validation",
+      "args": [
+        "--dataset-id",
+        "${workspaceFolder}/data/sql/sql_context_copy_single_quoted.json",
+        "--output",
+        "${workspaceFolder}/data/sql/sql_validation_results_generic",
+        "--dialect",
+        "generic",
+        "--override"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "SQL Validation (mysql; full)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "sql_tools.run_sql_validation",
+      "args": [
+        "--dataset-id",
+        "${workspaceFolder}/data/sql/sql_context_copy_single_quoted.json",
+        "--output",
+        "${workspaceFolder}/data/sql/sql_validation_results_mysql",
+        "--dialect",
+        "mysql",
+        "--override"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "SQL Correction (dry run)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "sql_tools.run_repair_sql_statements",
+      "args": [
+        "--input",
+        "${workspaceFolder}/data/sql/sql_validation_results_generic/incorrect_prompts.json",
+        "--output",
+        "${workspaceFolder}/data/sql/correction_generic",
+        "--dry-run",
+        "--max-rows",
+        "5"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "SQL Correction (full)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "sql_tools.run_repair_sql_statements",
+      "args": [
+        "--input",
+        "${workspaceFolder}/data/sql/sql_validation_results_generic/incorrect_prompts.json",
+        "--output",
+        "${workspaceFolder}/data/sql/correction_generic",
+        "--checkpoints",
+        "--checkpoint-size",
+        "100"
+      ],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}
