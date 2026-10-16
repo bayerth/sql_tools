@@ -70,6 +70,9 @@ statement, it also receives a Spider hardness label. No statement is executed.
 \end{abstract}
 
 The code and the prompts are in \url{https://github.com/bayerth/sql_tools}.
+The refined rows, including both hardness fields, are in
+\path{data/sql/sql_context_v2.json}.
+
 Repair and DDL expansion call \texttt{openai/gpt-oss-120b} through LM Studio on
 a Mac Studio with an M4 Max and 128\,GB of memory. The context length is
 32{,}768 tokens and the temperature is 0. Expansion sends 16 rows per request.
@@ -106,9 +109,10 @@ The scripts were run in this order. Each step reads the previous step's output.
         rows.
   \item Expand the DDL. The model may add columns and lengths. It must not
         change the SQL.
-  \item Merge expanded, unchanged, and failed expansion rows back into one
-        file of 78{,}577 rows. Failed rows keep their original DDL.
-  \item Assign Spider hardness and extended hardness.
+  \item Merge expanded, unchanged, and failed expansion rows into
+        \path{data/sql/sql_context_v2.json}, 78{,}577 rows. Failed rows keep
+        their original DDL.
+  \item Assign Spider hardness and extended hardness on that file.
 \end{enumerate}
 
 \section{Single-quoted literals}
@@ -431,6 +435,18 @@ WHERE salary > (SELECT AVG(salary) FROM employees)
 The 3{,}195 rows with only an extended label are statements the official
 Spider adapter rejects. Eight rows are \texttt{extreme}. No row was left
 without an extended label.
+
+Those labels are columns of \path{data/sql/sql_context_v2.json}.
+
+Every row has an \texttt{extended\_hardness} value.
+A \texttt{spider\_hardness} value is set on the 75{,}382 rows the official
+adapter accepts, and it is null on the other 3{,}195.
+\texttt{dialect} is \texttt{generic} on the 78{,}036 rows that passed the
+first validation, and \texttt{mysql} on the 541 repaired rows.
+
+\texttt{classification\_status} is \texttt{classified} when both hardness
+fields are set, and \texttt{extended} when only the extended label is set.
+The last entry of \texttt{status\_history} records that same value.
 
 \section{What the upgrade does not claim}
 
